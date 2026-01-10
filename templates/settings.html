@@ -71,12 +71,18 @@
                 </ul>
 
                 <form action="{{ url_for('add_folder') }}" method="post" class="row g-2">
-                    <div class="col-8 col-md-10">
-                        <input type="text" name="path" class="form-control bg-dark text-light border-secondary"
+                    <div class="col-8 col-md-8">
+                        <input type="text" name="path" id="folder-path-input"
+                            class="form-control bg-dark text-light border-secondary"
                             placeholder="/Users/username/Movies" required>
                     </div>
-                    <div class="col-4 col-md-2">
-                        <button type="submit" class="btn btn-outline-success w-100">Add Path</button>
+                    <div class="col-2 col-md-2">
+                        <button type="button" class="btn btn-outline-secondary w-100" onclick="openFileBrowser()">
+                            <i class="bi bi-folder2-open"></i>
+                        </button>
+                    </div>
+                    <div class="col-2 col-md-2">
+                        <button type="submit" class="btn btn-outline-success w-100">Add</button>
                     </div>
                 </form>
             </div>
@@ -138,8 +144,101 @@
         </div>
     </div>
 
+    <!-- File Browser Modal -->
+    <div class="modal fade" id="fileBrowserModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content bg-dark text-light border-secondary shadow">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">Select Folder</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Navigation Bar -->
+                    <div class="d-flex align-items-center mb-3">
+                        <button class="btn btn-outline-secondary btn-sm me-2" id="browser-up-btn" onclick="browseUp()">
+                            <i class="bi bi-arrow-up"></i>
+                        </button>
+                        <input type="text" class="form-control form-control-sm bg-secondary text-light border-0"
+                            id="browser-current-path" readonly>
+                    </div>
+
+                    <!-- Folder List -->
+                    <div class="list-group" id="browser-list">
+                        <!-- Populated by JS -->
+                        <div class="text-center p-3"><span class="spinner-border text-light"></span></div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-success" onclick="selectCurrentFolder()">
+                        Select This Folder
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // --- File Browser Logic ---
+        let currentBrowserPath = "";
+        const browserModal = new bootstrap.Modal(document.getElementById('fileBrowserModal'));
+
+        function openFileBrowser() {
+            browserModal.show();
+            // Load initial path (Home)
+            fetchFiles(null);
+        }
+
+        function browseUp() {
+            fetchFiles(document.getElementById('browser-up-btn').dataset.parent);
+        }
+
+        function fetchFiles(path) {
+            const listEl = document.getElementById('browser-list');
+            listEl.innerHTML = '<div class="text-center p-3"><span class="spinner-border text-light"></span></div>';
+
+            fetch('/api/browse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    currentBrowserPath = data.current_path;
+                    document.getElementById('browser-current-path').value = data.current_path;
+
+                    // Update Parent Button
+                    const upBtn = document.getElementById('browser-up-btn');
+                    if (data.parent_path) {
+                        upBtn.disabled = false;
+                        upBtn.dataset.parent = data.parent_path;
+                    } else {
+                        upBtn.disabled = true;
+                    }
+
+                    // Render List
+                    listEl.innerHTML = '';
+                    data.folders.forEach(folder => {
+                        const fullPath = (data.current_path === '/') ? '/' + folder : data.current_path + '/' + folder;
+
+                        const item = document.createElement('button');
+                        item.className = 'list-group-item list-group-item-action bg-transparent text-light border-secondary d-flex align-items-center';
+                        item.innerHTML = `<i class="bi bi-folder-fill text-warning me-3"></i> ${folder}`;
+                        item.onclick = () => fetchFiles(fullPath);
+                        listEl.appendChild(item);
+                    });
+
+                    if (data.folders.length === 0) {
+                        listEl.innerHTML = '<div class="text-center text-muted p-3">No folders found</div>';
+                    }
+                });
+        }
+
+        function selectCurrentFolder() {
+            document.getElementById('folder-path-input').value = currentBrowserPath;
+            browserModal.hide();
+        }
+
         // Wi-Fi Modal Logic
         function connectWifi(ssid) {
             document.getElementById('modal-ssid').innerText = ssid;

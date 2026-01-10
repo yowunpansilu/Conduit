@@ -14,6 +14,8 @@ class Media(db.Model):
     overview = db.Column(db.Text)
     poster_path = db.Column(db.String(200)) # Local path to poster image
     backdrop_path = db.Column(db.String(200))
+    rating = db.Column(db.Float) # TMDB Vote Average
+    duration = db.Column(db.Integer) # Runtime in minutes
     
     # TV Specific
     series_title = db.Column(db.String(100))
