@@ -2,7 +2,8 @@ import os
 import socket
 from flask import Flask, render_template, request, send_file, Response, redirect, url_for, session, flash
 from config import Config
-from models import db, Media
+from models import db, Media, MediaFolder
+import wifi_utils
 # from crawler import crawler # Disabled for Librarian Mode
 from librarian import librarian
 
@@ -79,9 +80,58 @@ def play(media_id):
 #         return {'authenticated': True}
 #     return {'authenticated': False}
 
+@app.route('/settings')
+def settings():
+    folders = MediaFolder.query.all()
+    # Attempt Wi-Fi Scan
+    networks = wifi_utils.scan_networks()
+    return render_template('settings.html', 
+                         folders=folders, 
+                         networks=networks, 
+                         download_dir=app.config['DOWNLOAD_DIR'])
+
+@app.route('/settings/folder/add', methods=['POST'])
+def add_folder():
+    path = request.form.get('path')
+    if path and os.path.exists(path):
+        if not MediaFolder.query.filter_by(path=path).first():
+            folder = MediaFolder(path=path)
+            db.session.add(folder)
+            db.session.commit()
+            flash(f"Added watch folder: {path}")
+        else:
+            flash("Folder already exists.")
+    else:
+        flash("Invalid path or folder does not exist.")
+    return redirect(url_for('settings'))
+
+@app.route('/settings/folder/delete', methods=['POST'])
+def delete_folder():
+    folder_id = request.form.get('folder_id')
+    folder = MediaFolder.query.get(folder_id)
+    if folder:
+        db.session.delete(folder)
+        db.session.commit()
+        flash("Folder removed.")
+    return redirect(url_for('settings'))
+
+@app.route('/settings/wifi/connect', methods=['POST'])
+def connect_wifi():
+    ssid = request.form.get('ssid')
+    password = request.form.get('password')
+    success, msg = wifi_utils.connect_network(ssid, password)
+    flash(msg)
+    return redirect(url_for('settings'))
+
 @app.route('/api/scan', methods=['POST'])
 def scan_library():
-    result = librarian.scan_and_organize()
+    # Upgrade scan to include MediaFolders
+    folders = [app.config['DOWNLOAD_DIR']]
+    watch_folders = MediaFolder.query.all()
+    for wf in watch_folders:
+        folders.append(wf.path)
+        
+    result = librarian.scan_and_organize(folders)
     flash(result)
     return redirect(url_for('dashboard'))
 
@@ -93,8 +143,11 @@ def logout():
 
 @app.route('/stream/<path:filename>')
 def stream(filename):
-    # Streaming from Downloads directly (Simplified for now)
-    # Ideally should differentiate between library paths
+    # Filename is likely absolute path now, or relative to cwd
+    # If absolute, send directly
+    if os.path.isabs(filename):
+         return send_file(filename)
+    # Fallback to downloads
     return send_file(os.path.join(app.config['DOWNLOAD_DIR'], filename))
 
 if __name__ == '__main__':
