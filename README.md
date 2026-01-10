@@ -5,13 +5,16 @@
 It is designed to be lightweight and simple: point it at your media folders, and it automatically fetches posters, metadata, and descriptions using the TMDB API. It features a modern, responsive dashboard with a premium dark/light mode and simple settings management.
 
 ![Dashboard Preview](https://placehold.co/800x400/1f1f1f/ffffff?text=Conduit+Dashboard+Preview)
+![Dashboard Preview](Screenshots/Dashboard.png)
 
 ---
 
 ## 🚀 Key Features
 
 *   **Librarian Mode**: Automatically scans your `downloads` folder and other manual watch paths to discover movies and TV shows.
-*   **Auto-Metadata**: Uses `guessit` and `tmdbsimple` to identify files and fetch rich metadata (Posters, Year, Plot).
+*   **Headless Network Management**: Programmatic Wi-Fi configuration with an autonomous **Hotspot Fallback** (TMS-Setup) for effortless setup.
+    ![Settings Preview](Screenshots/Settings.png)
+*   **VLC-Native Streaming**: Bypasses server-side transcoding by generating Universal Deep Links (Android Intents, iOS x-callback, M3U playlists) for native VLC playback on any device.
 *   **Modern Dashboard**: A clean, responsive web interface built with **Flask** and **Bootstrap 5**.
 *   **Theme Support**: Toggle between a premium **Dark Mode** and a crisp Light Mode.
 *   **Direct Play**: Stream media directly in your browser without complex transcoding (supports HTML5 formats like MP4/MKV).
