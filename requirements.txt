@@ -5,3 +5,8 @@ guessit
 gunicorn
 python-dotenv
 ifaddr
+qrcode
+pillow
+flask-sqlalchemy
+requests
+

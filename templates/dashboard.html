@@ -1,10 +1,77 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-    <title>Conduit Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conduit</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body>
-    <h1>Conduit Dashboard</h1>
-    <p>Welcome to your Tele-Media Server.</p>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg sticky-top">
+        <div class="container">
+            <a class="navbar-brand" href="#"><i class="bi bi-broadcast"></i> CONDUIT</a>
+            <div class="ms-auto">
+                <a href="https://web.telegram.org" target="_blank"
+                    class="btn btn-outline-light btn-sm rounded-pill px-3 me-2">
+                    <i class="bi bi-telegram"></i> &nbsp;Open Web
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container py-5">
+
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-end mb-5 animate-fade-in">
+            <div>
+                <h2 class="mb-1">Your Library</h2>
+                <p class="text-secondary mb-0">Local media collection</p>
+            </div>
+
+            <form action="{{ url_for('scan_library') }}" method="post">
+                <button type="submit" class="btn btn-success rounded-pill px-4">
+                    <i class="bi bi-arrow-repeat"></i> &nbsp;Scan Library
+                </button>
+            </form>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="alert alert-dark border-0 shadow-sm animate-fade-in mb-4" role="alert">
+            <i class="bi bi-info-circle-fill text-info me-2"></i> {{ messages[0] }}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <!-- Content Grid -->
+        <div class="animate-fade-in" style="animation-delay: 0.1s;">
+            {% if library %}
+            {% include 'grid.html' %}
+            {% else %}
+            <div class="text-center py-5 mt-5">
+                <div class="mb-4 text-secondary">
+                    <i class="bi bi-collection-play display-1"></i>
+                </div>
+                <h3>It's quiet here...</h3>
+                <p class="text-secondary">Download media to your <code>downloads/</code> folder and hit Scan.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

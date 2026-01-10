@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Verify - Conduit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #121212;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: #1e1e1e;
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+            width: 300px;
+        }
+
+        input {
+            padding: 10px;
+            margin: 10px 0;
+            width: 90%;
+            border-radius: 4px;
+            border: none;
+            background: #333;
+            color: white;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #0088cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Verification</h2>
+        <p>Enter the code sent to {{ phone }}</p>
+        <form action="/verify/submit" method="POST">
+            <input type="text" name="code" placeholder="12345" required>
+            <button type="submit">Verify</button>
+        </form>
+    </div>
+</body>
+
+</html>
