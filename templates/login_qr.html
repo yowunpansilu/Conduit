@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Login - Conduit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #121212;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: #1e1e1e;
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+            width: 300px;
+        }
+
+        #qr-image {
+            width: 200px;
+            height: 200px;
+            margin: 20px auto;
+            display: block;
+            background: #eee;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Conduit Login</h2>
+        <p>Scan this QR Code with your Telegram App</p>
+        <p><small>Settings > Devices > Link Desktop Device</small></p>
+        <img id="qr-image" src="/api/qr_code" alt="Loading QR...">
+    </div>
+
+    <script>
+        function checkAuth() {
+            fetch('/api/check_auth')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.authenticated) {
+                        window.location.href = '/';
+                    }
+                });
+        }
+
+        function refreshQR() {
+            const img = document.getElementById('qr-image');
+            // Add timestamp to prevent caching
+            img.src = '/api/qr_code?t=' + new Date().getTime();
+        }
+
+        setInterval(checkAuth, 2000); // Check status every 2s
+        setInterval(refreshQR, 10000); // Refresh QR every 10s (urls expire)
+    </script>
+</body>
+
+</html>

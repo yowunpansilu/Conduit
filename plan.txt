@@ -1,0 +1,266 @@
+Architectural Design and Implementation Strategy for a Telegram-Integrated Distributed Media System on Legacy HardwareExecutive SummaryThe convergence of decentralized content distribution networks, specifically Telegram, with home media server architectures presents a novel paradigm for content consumption. This report details the architectural design, feasibility analysis, and implementation roadmap for a bespoke "Tele-Media Server" (TMS). The objective is to transform a legacy Dell Inspiron 3521 laptop into a headless, self-contained media appliance. This system is designed to autonomously source content via Telegram bots, manage local network connectivity through a custom web interface, automatically enrich media with metadata via the TMDB API, and stream content to local devices, effectively replicating the user experience of a Plex server but with a distinct, chat-based acquisition backend.The analysis indicates that while the project is technically feasible, the hardware constraints of the Dell Inspiron 3521—specifically the Ivy Bridge-era Intel Celeron/Core i3 processor and 4GB of RAM—necessitate a rigorous optimization strategy. A standard Windows 11 environment is deemed unsuitable due to high resource overhead; therefore, a migration to a lightweight Linux distribution (Debian or Ubuntu Server) is architectural critical. The proposed solution leverages a microservices architecture orchestrated by Python, utilizing Telethon for Telegram automation, nmcli for network management, and Jellyfin or a custom Flask-based player for content delivery. This report provides an exhaustive technical blueprint, addressing the challenges of asynchronous bot interaction, limited transcoding capabilities, and headless network configuration.1. Hardware Analysis and Operating System Optimization1.1 Hardware Constraints and Performance EnvelopeThe target hardware, a Dell Inspiron 3521, represents a mobile computing architecture from the early 2010s. Understanding the limitations of this specific platform is paramount to software design, as it dictates the boundaries of transcoding, concurrent operations, and memory management.1.1.1 Processor Limitations (Intel Ivy Bridge Architecture)The Dell Inspiron 3521 typically ships with an Intel Celeron 1007U (1.5GHz dual-core) or a Core i3-3217U.1 These processors belong to the Ivy Bridge generation.Instruction Set Deficiencies: Crucially, these processors lack support for AVX2 instructions and, more importantly, hardware decoding for H.265 (HEVC) video. Modern high-definition media is increasingly encoded in HEVC to save bandwidth. Without hardware acceleration, decoding 1080p HEVC content relies entirely on software decoding, which will likely saturate the CPU, causing buffer underruns and thermal throttling.3Transcoding Impossibility: Real-time transcoding (converting formats on the fly for incompatible clients) is computationally expensive. The PassMark score for the Celeron 1007U is approximately 1000, while a smooth 1080p transcode typically requires a score of 2000+. This necessitates a strict "Direct Play" strategy, where the server delivers the file exactly as stored, relying on the client device (e.g., smartphone, Smart TV) to handle decoding.41.1.2 Memory Constraints (4GB DDR3)The system is equipped with 4GB of DDR3 RAM.1Windows 11 Overhead: Windows 11 idle memory usage frequently exceeds 2.5GB, leaving less than 1.5GB for the application stack. This would result in aggressive paging to the disk (swapping), introducing significant latency to the web interface and potentially crashing the Telegram download client during large file operations.5Linux Efficiency: A headless Linux server (no desktop environment) typically consumes 300-500MB at idle. This releases approximately 3.5GB for the Python application, database caching, and filesystem buffers, significantly improving responsiveness and stability.31.1.3 Storage and Network IOThe device includes a 128GB boot drive (likely SSD) and a 512GB storage drive [User Query].I/O Throughput: The presence of an SSD for the boot drive is advantageous for database operations (e.g., storing metadata and search indices). The 512GB HDD is sufficient for a moderate media library but will require careful management of fragmentation.Network Interface: The device utilizes an 802.11n (Wi-Fi 4) adapter.1 In real-world scenarios, this yields throughput between 20-40 Mbps. While sufficient for 720p and compressed 1080p streams, high-bitrate content may saturate the wireless link. The 100Mbps Ethernet port offers stability and should be prioritized for the server's uplink if possible.61.2 Operating System Strategy: The Shift to LinuxGiven the analysis above, maintaining Windows 11 is architecturally unsound for this use case. The recommendation is to deploy Ubuntu Server 24.04 LTS or Debian 12 Bookworm. These distributions offer:Systemd Integration: Essential for creating resilient background services (daemons) for the web server and Telegram client.NetworkManager D-Bus API: Provides a robust programmatic interface for managing Wi-Fi connections, which is a core requirement of the user request.7Containerization Support: Linux runs Docker natively without the heavy virtualization layer required by Docker Desktop on Windows, allowing for isolated application environments with minimal overhead.2. System Architecture and DesignThe proposed system, essentially a "Tele-Media Server" (TMS), operates as a middleware between the decentralized Telegram network and a local media consumption interface.2.1 Architectural ComponentsThe system is composed of four distinct, interacting modules:The Orchestrator (Backend API): A Python-based application (using Flask or FastAPI) that serves the user dashboard, manages authentication, and routes commands to other subsystems.The Crawler (Telegram Interaction Engine): A specialized Userbot implementation using the Telethon library. It maintains a persistent session with the Telegram MTProto network to search, request, and download content.The Librarian (Metadata & Asset Management): A file processing pipeline that monitors download directories, identifies media using regex and fuzzy matching, queries the TMDB API for metadata, and reorganizes files into a standardized directory structure.The Controller (Network & System Manager): A privileged module interfacing with the Linux OS to manage Wi-Fi connections (nmcli), storage mounting, and system power states.2.2 Data Flow LogicSearch Phase: User queries "Inception" via the Web UI -> Orchestrator sends command to Crawler -> Crawler messages a specific Telegram Indexer Bot -> Crawler parses the bot's reply (Inline Buttons/Text) -> Orchestrator displays results to User.Acquisition Phase: User selects a file -> Crawler initiates download (MTProto) -> Progress is streamed via WebSockets to Web UI.Ingestion Phase: Download completes -> Librarian detects new file -> Identifies "Inception (2010)" -> Fetches metadata from TMDB -> Renames and moves file to /media/movies/Inception (2010)/.Consumption Phase: User navigates to Dashboard -> Web UI requests library state -> Orchestrator serves metadata and stream URL -> User plays video (Direct Stream).3. Module 1: The Telegram Crawler EngineThe most complex requirement is the automated interaction with Telegram bots to source content. This requires a "Userbot"—a script that acts as a human user—rather than a standard Bot API implementation, as standard bots cannot easily interact with other bots due to API restrictions.83.1 Telethon Userbot ImplementationThe Telethon library is the optimal choice for this module due to its asynchronous nature and robust support for the MTProto encryption scheme.93.1.1 Authentication FlowThe system must support a headless login flow.User Input: The user enters their phone number on the local web dashboard.Backend Trigger: The Orchestrator initiates client.send_code_request(phone).Code Entry: Telegram sends a login code to the user's mobile app. The user enters this code into the web dashboard.Session Persistence: Telethon generates a .session file. This file must be securely stored on the server. On subsequent reboots, the system loads this session to login automatically without user intervention.103.1.2 Searching via Third-Party BotsMost content on Telegram is indexed by automated bots (e.g., iBox, MovieSearchBot). These bots typically operate in two modes:Conversation Mode: You send a text message (Title), and the bot replies with text or file links.Inline Mode: You type @botname query in a chat, and results appear as a popup menu.The Crawler must simulate these interactions. For a conversation-based bot, the logic follows:Python# Conceptual Logic for Search
+async def search_remote_bot(bot_username, query_text):
+    async with client:
+        # Send query to the search bot
+        await client.send_message(bot_username, query_text)
+        
+        # Wait for response (simplified)
+        # In production, we need a robust event handler to match the response to the query
+        response = await client.get_messages(bot_username, limit=5)
+        
+        # Parse response for download links or buttons
+        results = parse_bot_response(response)
+        return results
+The parsing logic (parse_bot_response) is critical. It must identify Inline Keyboards (buttons) attached to messages. Telethon provides access to message.reply_markup, which contains the button data. If a button triggers a file download, the Userbot must programmatically "click" it using message.click(i).113.1.3 Handling Downloads and Rate LimitsTelegram imposes limits on download speeds and file sizes.File Size Limits: The standard Bot API is limited to 20MB. However, the MTProto Client API (used by Userbots) supports files up to 2GB (Free) or 4GB (Premium).13 The system must use the Client API client.download_media() rather than bot.get_file().Speed Restrictions: Free accounts are speed-capped. Premium accounts receive faster download speeds.14 The system should detect if the connected account is Premium and adjust timeout thresholds accordingly.Parallelization: To maximize bandwidth saturation, the downloader should utilize Telethon's parallel download chunking capabilities. This involves opening multiple connections to Telegram's data centers (DCs) to retrieve different parts of the file simultaneously.3.2 Automated Interaction LogicSearching isn't standard across all bots. Some bots require joining a "Bin Channel" to access files. The Crawler needs configurable logic (plugins) for different bot types:Type A (Direct): Replies with a file directly.Type B (Inline): Returns a button "Download". Clicking it sends the file.Type C (External): Returns a link to a private channel. The Userbot must perform a client(JoinChannelRequest(...)) before it can access the message ID referenced in the link.154. Module 2: Network Management and Headless ConfigurationThe requirement for the user to select the Wi-Fi network from the app implies the device may occasionally be disconnected. This creates a connectivity paradox: How does one access the web interface to configure Wi-Fi if the device isn't connected to Wi-Fi?4.1 NetworkManager and D-Bus IntegrationOn Linux, NetworkManager is the standard daemon for controlling connectivity. The Python backend will interface with it using dbus-python or by wrapping nmcli (NetworkManager Command Line Interface) commands via the subprocess module.7Core Functions Required:Scan: nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list. The -t (terse) flag provides machine-readable output that the Python backend can parse into a JSON object for the frontend.17Connect: nmcli dev wifi connect <SSID> password <PASSWORD>. This command must be executed asynchronously to prevent blocking the web server thread.4.2 The "Hotspot Fallback" StrategyTo solve the connectivity paradox, the system needs an autonomous watchdog script.Mechanism: A background script (running via cron or systemd) periodically pings a known reliable host (e.g., the local gateway or 8.8.8.8).Trigger: If connectivity is lost for a predefined threshold (e.g., 60 seconds), the script triggers NetworkManager to switch the Wi-Fi interface from "Client Mode" to "Access Point (Hotspot) Mode".18User Experience:User turns on the laptop. It fails to connect to known Wi-Fi.System activates hotspot "TeleMedia-Setup".User connects phone to "TeleMedia-Setup".User opens the Web App (at a static IP like 10.42.0.1), scans for home Wi-Fi, enters credentials, and applies settings.System deactivates hotspot and connects to home Wi-Fi.This functionality effectively replicates the setup process of commercial IOT devices (like Chromecast or Alexa) using purely open-source tools on legacy hardware.5. Module 3: The Librarian (Metadata and File Organization)Raw files from Telegram often have obfuscated names (e.g., Avngrs.Endgm.1080p.x265.mkv). To achieve a "Plex-like" dashboard, these must be normalized.5.1 Regex Parsing and IdentificationThe system requires a filename parser (similar to the logic used by Sonarr/Radarr). Libraries like guessit (Python) are industry standards here.Input: [ChannelName] Breaking_Bad_S05E14_Ozymandias_720p.mkvExtraction: Title: "Breaking Bad", Season: 5, Episode: 14, Quality: 720p.5.2 TMDB API IntegrationOnce identified, the system queries The Movie Database (TMDB) API.20Search Endpoint: /search/tv or /search/movie with the extracted title and year.Metadata Retrieval: On a successful match, the system downloads the poster (poster_path), backdrop image, synopsis (overview), and cast details. This data should be cached locally (SQLite database) to ensure the dashboard loads instantly without hitting API rate limits.215.3 Automated Renaming and MovingThe file is then moved from the download buffer to the structured library.Source: /downloads/temp/123456.mkvDestination: /media/TV Shows/Breaking Bad (2008)/Season 05/Breaking Bad - S05E14 - Ozymandias.mkvThis structured hierarchy is critical if the user decides later to install standard Jellyfin or Plex alongside the custom app, as these servers rely on folder structure for scanning.236. Module 4: The Dashboard and Media PlayerThe user interface acts as the unification layer for all backend services.6.1 Frontend TechnologiesGiven the need for responsiveness on mobile devices, a "Mobile First" web design framework like Bootstrap 5 or Tailwind CSS is recommended. The backend, running on Flask (Python), will serve HTML templates populated with data from the local SQLite database.6.2 The Video Player ImplementationStreaming video to a browser involves complex codec compatibility issues.Container Support: Browsers natively support MP4 (H.264 video / AAC audio). They do not widely support MKV containers or HEVC (H.265) video, which are common on Telegram.Transcoding Dilemma: As established, the Celeron 1007U cannot transcode HEVC to H.264 in real-time.Solution: HLS Remuxing or Direct Play.Direct Play: If the file is H.264/MP4, serve it directly via Nginx static hosting.Remuxing: If the file is H.264/MKV, the audio/video streams are compatible, but the container isn't. The system can use ffmpeg to "copy" streams into an HLS (HTTP Live Streaming) stream. This uses negligible CPU power (-c:v copy -c:a copy) compared to transcoding.Transcoding: If the file is HEVC, the system must warn the user or attempt a very slow transcode. A better approach for this hardware is to integrate with an external player app on the mobile device (e.g., VLC or MX Player) via URL schemes (e.g., vlc://http://192.168.1.10/video.mkv), offloading the decoding to the phone's powerful processor.256.3 Dashboard FeaturesSearch Bar: Unifies local library search with Telegram bot search.Status Panel: Displays current Wi-Fi SSID, signal strength, and disk usage.Download Queue: Shows active Telethon downloads with progress bars (updated via WebSocket/AJAX polling).Library Grid: Displays TMDB posters. Clicking a poster opens the detail view (synopsis, season list).277. Implementation Roadmap (Project ReadMe)The following serves as a technical "ReadMe" structure for initializing the project.Phase 1: Environment SetupInstall OS: Install Ubuntu Server 24.04 LTS. During installation, enable the SSH server and configure the user account.Dependencies: Install Python 3, pip, ffmpeg, and NetworkManager.Bashsudo apt update && sudo apt install python3-pip python3-venv ffmpeg network-manager git -y
+Permissions: Ensure the user has sudo rights without password for specific nmcli commands, or run the application service as root (carefully).Phase 2: Application CoreVirtual Environment:Bashpython3 -m venv venv
+source venv/bin/activate
+Libraries: Install necessary packages.Flask: Web server.Telethon: Telegram client.tmdbsimple: TMDB API wrapper.hachoir: For extracting video metadata.gunicorn: Production WSGI server.Configuration: Create a config.py file to store:API_ID & API_HASH (from my.telegram.org).BOT_TOKEN (for the interface bot, if needed).TMDB_API_KEY.Phase 3: Networking Logic (network.py)Implement the WifiManager class.Pythonimport subprocess
+
+class WifiManager:
+    def scan(self):
+        # Parses 'nmcli -t -f...' output
+        pass
+    
+    def connect(self, ssid, password):
+        # Runs 'nmcli dev wifi connect...'
+        pass
+    
+    def enable_hotspot(self):
+        # Configures AP mode if connection fails
+        pass
+Phase 4: The Telegram Worker (crawler.py)Implement the Telethon client logic.Pythonfrom telethon import TelegramClient
+
+class TeleCrawler:
+    async def login(self, phone):
+        # Logic to request code
+        pass
+    
+    async def search(self, query):
+        # Logic to msg external bots and parse results
+        pass
+    
+    async def download(self, message_id):
+        # Stream download to disk
+        pass
+Phase 5: Service DeploymentCreate a systemd unit file (telemedia.service) to ensure the app runs on boot and restarts on failure.Ini, TOML[Unit]
+Description=TeleMedia Server
+After=network.target
+
+
+User=root
+WorkingDirectory=/opt/telemedia
+ExecStart=/opt/telemedia/venv/bin/gunicorn --bind 0.0.0.0:80 wsgi:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+8. Feasibility and Risk Analysis8.1 CPU BottlenecksRisk: The Celeron 1007U will reach 100% utilization during file indexing (hashing) or if a user attempts to play a format requiring transcoding.Mitigation: The application logic must aggressively prefer "Direct Play" formats. The download searcher can be programmed to filter results, prioritizing MP4/x264 encodes over MKV/x265 to ensure compatibility with the host's limited capabilities.8.2 Telegram API VolatilityRisk: Telegram frequently updates its API, and bot behaviors change. If an external search bot (e.g., iBox) changes its output format, the Crawler's parsing logic will break.Mitigation: The "Crawler" module should be plugin-based. Support for multiple bots should be implemented so that if one goes down or changes, the user can switch to another search provider within the settings.8.3 Security ImplicationsRisk: Storing the Telegram session file and API keys on the device makes them vulnerable if the device is physically compromised.Mitigation: Encrypt the session file at rest using a key derived from the user's login password. Ensure the web interface is only accessible from the local network (LAN) and not exposed to the public internet.9. ConclusionThe proposed project—a self-hosting, Telegram-driven media server—is a highly capable solution for modernizing the Dell Inspiron 3521. By shifting to a Linux environment and leveraging the efficiency of Python's asynchronous libraries (Telethon), the system can overcome the hardware's memory limitations. The "Hotspot Fallback" mechanism ensures the device remains manageable even in headless configurations, while the integration of TMDB and automated renaming provides the polished "Plex-like" experience requested. While the lack of hardware transcoding is a hard constraint, strategic software choices (Direct Play prioritization) make this a viable and educational engineering project.10. Detailed Implementation Guide: The Project ReadMeThe following Markdown content is designed to be the README.md for your project repository, serving as the direct starting point requested.Tele-Media Server (TMS)A lightweight, self-hosted media server designed for legacy hardware. TMS automates the acquisition of media via Telegram, manages local Wi-Fi connectivity, and provides a polished, metadata-rich streaming dashboard similar to Plex.📋 FeaturesTelegram Integration: Search and download movies/TV shows directly from Telegram bots using a built-in Userbot.Headless Network Manager: Connect the server to Wi-Fi via the web interface. Includes auto-hotspot fallback if connection fails.Automated Librarian: Automatically renames files and fetches posters/metadata from TMDB.Web Dashboard: Mobile-responsive UI to browse library, manage downloads, and watch content.Direct Play: Optimized for low-end CPUs (avoids transcoding).🛠 Hardware RequirementsTarget Device: Dell Inspiron 3521 (or any x86_64 laptop/SBC).RAM: 4GB+ recommended (Runs on 2GB in headless mode).OS: Ubuntu Server 22.04 LTS or Debian 12 (Windows is NOT recommended due to high overhead).⚙️ PrerequisitesBefore starting, ensure you have:Telegram API Keys: Get App api_id and App api_hash from my.telegram.org.TMDB API Key: Get a free API key from(https://www.themoviedb.org/documentation/api).Linux Installed: A fresh install of Ubuntu Server on the laptop.🚀 Installation & Setup1. System PreparationUpdate your system and install core dependencies.bashsudo apt update && sudo apt upgrade -ysudo apt install python3-pip python3-venv ffmpeg network-manager git nginx -y
+### 2. Clone and Configuration
+Clone the repository (conceptual command):
+```bash
+git clone [https://github.com/your-repo/tele-media-server.git](https://github.com/your-repo/tele-media-server.git)
+cd tele-media-server
+Create a .env file in the root directory:Ini, TOMLTG_API_ID=123456
+TG_API_HASH=your_hash_here
+TMDB_API_KEY=your_tmdb_key
+SECRET_KEY=random_string_for_flask_session
+DOWNLOAD_DIR=/media/storage/downloads
+LIBRARY_DIR=/media/storage/library
+3. Python EnvironmentSet up the virtual environment and install dependencies.Bashpython3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+Key libraries in requirements.txt: flask, telethon, tmdbsimple, hachoir, gunicorn, python-dotenv.4. Running the ApplicationDevelopment ModeBashpython3 app.py
+Access the dashboard at http://<your-ip>:5000.Production Mode (Systemd)Create a service file to run the app on boot:sudo nano /etc/systemd/system/tms.serviceIni, TOML[Unit]
+Description=Tele-Media Server
+After=network.target
+
+
+User=your_user
+WorkingDirectory=/path/to/tele-media-server
+ExecStart=/path/to/tele-media-server/venv/bin/gunicorn -w 3 -b 0.0.0.0:80 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+Enable the service:Bashsudo systemctl enable tms
+sudo systemctl start tms
+📱 Usage GuideInitial Setup (Headless)If the device cannot connect to Wi-Fi, it will broadcast a hotspot named TMS-Setup.Connect to this hotspot with your phone (Password: tmsadmin).Navigate to http://10.42.0.1.Go to Settings > Network, select your home Wi-Fi, and enter the password.The device will reboot and connect to your home network.Linking TelegramGo to Settings > Telegram.Enter your phone number.Enter the OTP code sent to your Telegram app.The status will change to "Connected".Downloading ContentGo to the Search tab.Enter a query (e.g., "The Matrix").The system queries configured Telegram bots and displays results.Click Download. The file will appear in the Queue tab.Once finished, it automatically moves to Library with full metadata.⚠️ Notes on TranscodingThis project relies on Direct Play. The web player utilizes HTML5 standards.Supported: MP4 containers, H.264 video, AAC audio.Partially Supported: MKV (may require remuxing, handled automatically if CPU allows).Unsupported: H.265 (HEVC) may stutter on the Dell 3521 CPU. For best results, stream to a mobile device using VLC Player or Infuse.
+---
+
+## 11. Extended Analysis: NetworkManager Fallback Script
+
+To fully satisfy the "select Wi-Fi network" requirement in a headless environment, the following bash script logic must be implemented as a cron job or systemd timer.
+
+```bash
+#!/bin/bash
+
+# Target to ping (Google DNS)
+TARGET="8.8.8.8"
+INTERFACE="wlan0"
+HOTSPOT_NAME="TMS-Fallback"
+
+# Check for internet connectivity
+if ping -c 1 $TARGET &> /dev/null
+then
+    echo "Internet connected."
+    exit 0
+else
+    echo "Internet disconnected. Checking if Hotspot is active..."
+    
+    # Check if we are already in hotspot mode to avoid restart loops
+    CURRENT_SSID=$(nmcli -t -f active,ssid dev wifi | grep yes | cut -d: -f2)
+    
+    if; then
+        echo "Hotspot already active."
+    else
+        echo "Starting Hotspot..."
+        nmcli con up $HOTSPOT_NAME
+    fi
+fi
+This script ensures that if the user messes up the Wi-Fi configuration via the app, the system automatically recovers into a state (Hotspot) where the user can fix the mistake without needing a keyboard and monitor attached to the server.12. Metadata Logic: The "Librarian"The metadata engine requires robust logic to handle the chaotic naming conventions found on Telegram.12.1 The Renaming PipelineSanitization: Replace periods . and underscores _ with spaces. Remove common junk terms (e.g., x265, 10bit, PSA, RARBG).Extraction: Use Regex to find the pattern S\d{2}E\d{2} (Season/Episode).If found: It's a TV Show. Extract Series Name (text before SxxExx).If not found: Check for 4-digit Year (19|20)\d{2}. It's likely a Movie.Validation: Call tmdb.Search().tv(query=name) or tmdb.Search().movie(query=name).Confirmation: Compare the release date from TMDB with the year in the filename (if present). If within +/- 1 year, consider it a match.Enrichment: Download poster_path image to the local static/images folder. Save the overview (plot) to the SQLite database linked to the file ID.This automated pipeline transforms the raw data dump from Telegram into the polished, visual "Plex-like" experience requested.
+
+
+Architectural Design: Telegram-Integrated Media Server (VLC Edition)Executive SummaryThis report details the design for a "Tele-Media Server" (TMS) customized for the Dell Inspiron 3521 (Intel Celeron/Core i3, 4GB RAM). The system automates content acquisition via Telegram and serves it to local devices.Crucial Update: To bypass the hardware limitations of the host server (which cannot handle video transcoding), this iteration removes the browser-based video player. Instead, it utilizes Universal Deep Linking. The server generates specialized "Intent URLs" and Playlist files that force the client device (iPhone, Android, PC, Mac) to launch its native VLC Media Player. This ensures smooth playback of high-quality (HEVC/1080p) Telegram content without placing any video processing load on the Dell laptop.1. Hardware Analysis & VLC Strategy1.1 The "Zero-Transcode" AdvantageThe Dell Inspiron 3521's Ivy Bridge processor lacks the instruction sets to decode modern video formats (HEVC/x265) efficiently.Old Approach (Web Player): The server must convert video to a format the browser understands (transcoding). This would crash your server.New Approach (VLC Integration): The server acts purely as a file host. It sends the raw file bits to the client. The client (e.g., an iPhone 14 or a Gaming PC) uses its powerful processor to decode and play the video.Result: Your server CPU usage will drop from ~100% to ~5-10% during playback, allowing it to handle downloads and streaming simultaneously.11.2 OS RecommendationWe maintain the recommendation for Ubuntu Server 24.04 LTS (or Debian 12). Windows 11 consumes 2.5GB+ RAM idle; Linux headless consumes ~400MB, leaving ~3.5GB for your Python application and file caching.2. System ArchitectureThe system consists of four interacting modules. The Dashboard module has been significantly re-engineered for VLC integration.The Crawler: Telethon Userbot to search and download from Telegram.The Librarian: Regex parser to organize files and fetch TMDB metadata.The Controller: NetworkManager wrapper for Wi-Fi/Hotspot management.The Linker (New): A smart routing engine that detects the device type (User-Agent) and serves the correct VLC launch command.3. Module Implementation Details3.1 The Telegram Crawler (Unchanged)Uses Telethon to log in as a user, sends search queries to bots (like iBox or similar), and downloads files via the MTProto API. It must handle multi-part downloads to maximize the 100Mbps Ethernet or Wi-Fi 4 connection speeds.3.2 The Librarian (Unchanged)Monitors the download folder. When a file arrives:Parses name: Avengers_Endgame_2019.mkv -> Avengers Endgame (2019).Fetches poster/plot from TMDB API.Moves file to: /media/movies/Avengers Endgame (2019).mkv.3.3 The Linker: Universal VLC Integration (New)This is the core of your streaming requirement. Browsers cannot "stream" MKV files natively, but they can trigger apps that do.The web dashboard will determine what device is visiting it and generate a specific "Play" button URL:Client DeviceProtocol / MechanismTechnical ImplementationAndroidAndroid Intentsintent://<IP>/file.mkv#Intent;package=org.videolan.vlc;type=video/*;scheme=http;endiOS (iPhone/iPad)x-callback-urlvlc-x-callback://x-callback-url/stream?url=http://<IP>/file.mkvPC / MacM3U PlaylistServer generates a temporary .m3u file containing the stream URL. Browser downloads it; user opens it; VLC launches automatically.3.4 Headless Network ManagerThe "Hotspot Fallback" script remains critical. If the server cannot connect to your home Wi-Fi, it must create its own network (SSID: TMS-Setup) so you can access the web panel to fix settings.24. Implementation Roadmap (Project ReadMe)Below is the complete README.md to initialize this specific project.Tele-Media Server (TMS): VLC EditionA self-hosted media appliance for legacy hardware. It automates Telegram downloads and uses "Smart Linking" to stream content directly to VLC on any device, bypassing the need for server-side transcoding.📋 FeaturesVLC Direct Launch: One-click streaming to VLC on Android, iOS, Windows, and Mac.Telegram Crawler: Search & download from Telegram bots via a web UI.Metadata Engine: Auto-fetches covers and info from TMDB.Wi-Fi Manager: Connect to Wi-Fi via the web UI (with Hotspot auto-fallback).Lightweight: Runs on <500MB RAM.🛠 PrerequisitesHardware: Dell Inspiron 3521 (or any Linux PC).OS: Ubuntu Server 24.04 (Recommended).Client Apps: VLC Media Player must be installed on your phone/laptop.🚀 Installation1. System SetupInstall system dependencies:Bashsudo apt update && sudo apt upgrade -y
+sudo apt install python3-pip python3-venv ffmpeg network-manager git nginx -y
+2. Project SetupCreate the project structure:Bashmkdir -p ~/tms/{downloads,library,static/posters}
+cd ~/tms
+python3 -m venv venv
+source venv/bin/activate
+Install Python libraries:Bashpip install flask telethon tmdbsimple guessit gunicorn ifaddr
+3. ConfigurationCreate a .env file with your credentials:Ini, TOMLTG_API_ID=123456
+TG_API_HASH=your_telegram_hash
+TMDB_API_KEY=your_tmdb_key
+# The IP of this server on your LAN (can be auto-detected, but static is better)
+HOST_IP=192.168.1.50
+4. The Application Code (app.py)This is the core logic for the VLC integration.Pythonimport os
+import socket
+from flask import Flask, render_template, request, send_file, Response
+from urllib.parse import quote
+
+app = Flask(__name__)
+
+# --- Helper: Get Local IP ---
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Doesn't need to be reachable
+        s.connect(('10.255.255.255', 1))
+        IP = s.getsockname()
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
+# --- Route: Dashboard ---
+@app.route('/')
+def dashboard():
+    # In a real app, this list comes from your database
+    media_files =
+    
+    # Detect User Agent to decide player format
+    ua = request.user_agent.string.lower()
+    
+    host_ip = get_local_ip()
+    base_url = f"http://{host_ip}:5000/stream"
+    
+    processed_media =
+    for media in media_files:
+        file_url = f"{base_url}/{media['filename']}"
+        
+        # Logic to generate the correct VLC link
+        if 'android' in ua:
+            # Android Intent
+            play_link = f"intent://{host_ip}:5000/stream/{media['filename']}#Intent;package=org.videolan.vlc;type=video/*;scheme=http;end"
+        elif 'iphone' in ua or 'ipad' in ua:
+            # iOS VLC Callback
+            play_link = f"vlc-x-callback://x-callback-url/stream?url={quote(file_url)}"
+        else:
+            # Desktop (Windows/Mac/Linux) -> Download M3U
+            play_link = f"/generate_playlist/{media['filename']}"
+            
+        processed_media.append({
+            "meta": media,
+            "link": play_link,
+            "is_desktop": 'android' not in ua and 'iphone' not in ua
+        })
+
+    return render_template('dashboard.html', media=processed_media)
+
+# --- Route: Stream File ---
+# Nginx should handle this in production, but Flask can do it for small setups
+@app.route('/stream/<path:filename>')
+def stream(filename):
+    # Ensure you set the correct path to your library
+    return send_file(os.path.join(os.path.expanduser('~/tms/library'), filename))
+
+# --- Route: Generate M3U (For PC/Mac) ---
+@app.route('/generate_playlist/<path:filename>')
+def generate_playlist(filename):
+    host_ip = get_local_ip()
+    file_url = f"http://{host_ip}:5000/stream/{filename}"
+    
+    # M3U Content
+    m3u_content = f"#EXTM3U\n#EXTINF:-1,{filename}\n{file_url}"
+    
+    return Response(
+        m3u_content,
+        mimetype="audio/x-mpegurl",
+        headers={"Content-Disposition": f"attachment;filename={filename}.m3u"}
+    )
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, threaded=True)
+5. The Frontend (templates/dashboard.html)A simple responsive grid.HTML<!DOCTYPE html>
+<html>
+<head>
+    <title>TMS Library</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: white; }
+       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; padding: 20px; }
+       .card { background: #333; border-radius: 8px; overflow: hidden; text-align: center; }
+       .card img { width: 100%; height: 225px; object-fit: cover; }
+       .btn { display: block; background: #e25555; color: white; text-decoration: none; padding: 10px; margin: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Library</h1>
+    <div class="grid">
+        {% for item in media %}
+        <div class="card">
+            <img src="/static/posters/{{ item.meta.poster }}" alt="Poster">
+            <h3>{{ item.meta.name }}</h3>
+            <a href="{{ item.link }}" class="btn">
+                {% if item.is_desktop %} Open Playlist (VLC) {% else %} Play in VLC {% endif %}
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
+📱 User Experience GuideOn AndroidInstall VLC for Android from the Play Store.Open the TMS Dashboard in Chrome.Tap Play in VLC.Chrome will ask "Open with VLC?". Tap Always.Video starts immediately.On iOSInstall VLC for Mobile from the App Store.Open TMS Dashboard in Safari.Tap Play in VLC.Safari will prompt "Open in VLC?". Tap Open.On PC / MacInstall VLC Media Player.Open TMS Dashboard.Click Open Playlist (VLC).A small file (movie.m3u) will download.Click the file. It will launch VLC and start streaming immediately.5. Network Manager (Wi-Fi Selection)To fulfill the requirement of selecting Wi-Fi from the app, you need a backend route that executes Linux commands.Warning: Changing network settings can disconnect the server. This module must be robust.Pythonimport subprocess
+
+@app.route('/api/wifi/scan')
+def scan_wifi():
+    # Run nmcli to list networks
+    result = subprocess.run(, capture_output=True, text=True)
+    networks =
+    for line in result.stdout.split('\n'):
+        if line:
+            parts = line.split(':')
+            networks.append({'ssid': parts, 'signal': parts[3], 'sec': parts[4]})
+    return {'networks': networks}
+
+@app.route('/api/wifi/connect', methods=)
+def connect_wifi():
+    data = request.json
+    ssid = data['ssid']
+    password = data['password']
+    
+    # Run nmcli connect command (This is blocking and risky)
+    # Ideally, run this in a background thread
+    cmd = ['nmcli', 'dev', 'wifi', 'connect', ssid, 'password', password]
+    subprocess.Popen(cmd) 
+    return {'status': 'connecting', 'message': 'Server creates connection. You may lose access briefly.'}
+6. Summary of Risks & SolutionsDirect Play vs. Bandwidth: Since we are not transcoding, the full file bitrate is sent over Wi-Fi. A 4GB movie (~1.5 hours) requires roughly 6-8 Mbps stable bandwidth. Your Dell's 802.11n card can handle ~30-40 Mbps real-world speed, which is sufficient for 1080p, but might struggle with 4K remuxes.Solution: Stick to "1080p x265" downloads from Telegram (usually <2GB), which are very bandwidth-friendly.VLC on Desktop: On Windows/Mac, browsers prevent websites from launching EXE files directly for security. The .m3u playlist approach used above is the industry-standard workaround. It feels like downloading a "ticket" to play the movie.This design gives you a modern "Plex-like" interface while respecting the limitations of your 2013-era hardware by leveraging the power of the client devices.

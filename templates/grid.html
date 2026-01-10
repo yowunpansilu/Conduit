@@ -1,0 +1,51 @@
+<div class="row row-cols-2 row-cols-md-4 row-cols-lg-5 g-4 media-grid">
+    {% for item in library %}
+    <div class="col">
+        <div class="card h-100 shadow-lg position-relative">
+            <a href="{{ url_for('play', media_id=item.id) }}" class="stretched-link text-decoration-none text-white">
+                {% if item.poster_path %}
+                <img src="{{ url_for('static', filename=item.poster_path) }}" class="card-img-top"
+                    alt="{{ item.title }}" loading="lazy">
+                {% else %}
+                <div class="card-img-top placeholder-poster d-flex align-items-center justify-content-center">
+                    <div class="text-center p-3">
+                        <i class="bi bi-film fs-1 mb-2"></i>
+                        <div class="small text-uppercase fw-bold">{{ item.title }}</div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card-body">
+                    <h6 class="card-title text-truncate mb-0">{{ item.title }}</h6>
+                    <small class="text-secondary">{{ item.year if item.year else 'Unknown' }}</small>
+                </div>
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<style>
+    .media-grid .card {
+        transition: transform 0.2s;
+    }
+
+    .media-grid .card:hover {
+        transform: scale(1.05);
+        z-index: 10;
+    }
+
+    .hover-overlay:hover {
+        opacity: 1 !important;
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    .hover-overlay {
+        transition: opacity 0.2s;
+    }
+
+    .placeholder-poster {
+        height: 300px;
+        background-color: #333;
+    }
+</style>
