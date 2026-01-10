@@ -22,3 +22,11 @@ class Media(db.Model):
 
     def __repr__(self):
         return f'<Media {self.title}>'
+
+class MediaFolder(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    path = db.Column(db.String(500), nullable=False, unique=True)
+    folder_type = db.Column(db.String(20), default='watch') # 'watch' or 'import'
+
+    def __repr__(self):
+        return f'<MediaFolder {self.path}>'
