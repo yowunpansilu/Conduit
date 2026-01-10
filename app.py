@@ -271,12 +271,20 @@ def stream_transcode(filename):
         return Response("Access Denied", status=403)
 
     # 2. VLC Command
-    # cvlc -I dummy input_file --sout "#transcode{vcodec=h264,vb=800,acodec=mp3,ab=128}:std{access=file,mux=mp4,dst=-}" vlc://quit
-    # Note: 'dst=-' sends to stdout
-    vlc_path = "/Applications/VLC.app/Contents/MacOS/VLC"
+    # Detect Path based on OS
+    import shutil
+    vlc_cmd = shutil.which("cvlc") or shutil.which("vlc")
+    
+    # Fallback for macOS if not in PATH
+    if not vlc_cmd and os.path.exists("/Applications/VLC.app/Contents/MacOS/VLC"):
+        vlc_cmd = "/Applications/VLC.app/Contents/MacOS/VLC"
+        
+    if not vlc_cmd:
+        print("Transcode Error: VLC not found on system.")
+        return Response("VLC not found on server", status=500)
     
     cmd = [
-        vlc_path,
+        vlc_cmd,
         "-I", "dummy",          # No interface
         full_path,              # Input
         "--sout",               # Stream Output
