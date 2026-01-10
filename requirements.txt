@@ -1,0 +1,7 @@
+flask
+telethon
+tmdbsimple
+guessit
+gunicorn
+python-dotenv
+ifaddr
