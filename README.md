@@ -4,7 +4,6 @@
 
 It is designed to be lightweight and simple: point it at your media folders, and it automatically fetches posters, metadata, and descriptions using the TMDB API. It features a modern, responsive dashboard with a premium dark/light mode and simple settings management.
 
-![Dashboard Preview](https://placehold.co/800x400/1f1f1f/ffffff?text=Conduit+Dashboard+Preview)
 ![Dashboard Preview](Screenshots/Dashboard.png)
 
 ---
