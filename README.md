@@ -1,103 +1,94 @@
-# Conduit: Tele-Media Server (TMS)
+# Conduit: Local Media Server
 
-A lightweight, self-hosted media ecosystem designed for legacy hardware. **Conduit** (Tele-Media Server) bridges the gap between decentralized Telegram content and your home network, transforming older laptops into powerful, Plex-like media appliances.
+**Conduit** is a sleek, self-hosted media server that organizes your local video files into a beautiful, Netflix-style library. 
+
+It is designed to be lightweight and simple: point it at your media folders, and it automatically fetches posters, metadata, and descriptions using the TMDB API. It features a modern, responsive dashboard with a premium dark/light mode and simple settings management.
+
+![Dashboard Preview](https://placehold.co/800x400/1f1f1f/ffffff?text=Conduit+Dashboard+Preview)
 
 ---
-
-## 🌟 The Vision
-The objective is to repurpose legacy hardware (specifically the **Dell Inspiron 3521**) into a headless, self-contained media server. By utilizing a "Direct Play" strategy and delegating heavy lifting (decoding) to client devices, Conduit ensures smooth 1080p HEVC playback even on Intel Celeron/Ivy Bridge-era hardware.
 
 ## 🚀 Key Features
 
-- **Telegram Userbot Crawler**: Automated search and acquisition of media directly from Telegram bots (e.g., iBox, MovieSearchBot) using the Telethon MTProto client.
-- **Smart Librarian**: Automatic regex-based filename parsing and metadata enrichment using the **TMDB API**.
-- **Headless Network Management**: Programmatic Wi-Fi configuration with an autonomous **Hotspot Fallback** (TMS-Setup) for effortless setup.
-- **VLC-Native Streaming**: Bypasses server-side transcoding by generating Universal Deep Links (Android Intents, iOS x-callback, M3U playlists) for native VLC playback on any device.
-- **Microservices-Lite Architecture**: Built on a lightweight Python/Flask stack optimized for low 4GB RAM footprints.
-
----
-
-## 🏗 System Architecture
-
-```mermaid
-graph TD
-    User((User)) --> Dashboard[Web Dashboard / Flask]
-    Dashboard --> Crawler[Telegram Crawler / Telethon]
-    Dashboard --> Controller[Network Controller / nmcli]
-    Crawler --> TG[Telegram MTProto Network]
-    Crawler --> Librarian[Librarian / Metadata Engine]
-    Librarian --> TMDB[TMDB API]
-    Librarian --> Storage[(Local Storage)]
-    Storage --> Streamer[VLC Linker / Stream Server]
-    Streamer --> VLC((Client VLC Player))
-```
-
-### Hardware Optimization
-| Component | Strategy |
-| :--- | :--- |
-| **CPU** | **Direct Play Only**. No transcoding to prevent CPU saturation on Ivy Bridge processors. |
-| **RAM** | Headless Linux (Debian/Ubuntu) deployment to minimize idle usage to ~400MB. |
-| **Network** | Ethernet prioritized; Wi-Fi 4 optimized for bitrates < 40 Mbps. |
+*   **Librarian Mode**: Automatically scans your `downloads` folder and other manual watch paths to discover movies and TV shows.
+*   **Auto-Metadata**: Uses `guessit` and `tmdbsimple` to identify files and fetch rich metadata (Posters, Year, Plot).
+*   **Modern Dashboard**: A clean, responsive web interface built with **Flask** and **Bootstrap 5**.
+*   **Theme Support**: Toggle between a premium **Dark Mode** and a crisp Light Mode.
+*   **Direct Play**: Stream media directly in your browser without complex transcoding (supports HTML5 formats like MP4/MKV).
+*   **Wi-Fi Manager (macOS)**: Scan and connect to Wi-Fi networks directly from the Settings page (optimized for headless Mac minis).
 
 ---
 
 ## 🛠 Prerequisites
 
-- **OS**: Ubuntu Server 24.04 LTS (Recommended) or Debian 12.
-- **Hardware**: Dell Inspiron 3521 or similar x86_64 legacy device.
-- **API Credentials**:
-  - [Telegram API ID & Hash](https://my.telegram.org)
-  - [TMDB API Key](https://www.themoviedb.org/documentation/api)
+*   **Python 3.9+**
+*   **TMDB API Key**: Free to get from [The Movie Database](https://www.themoviedb.org/documentation/api).
+*   **OS**: macOS (for Wi-Fi features) or Linux/Windows (core features work everywhere).
 
 ---
 
-## 🔧 Setup & Installation
+## 🔧 Installation
 
-### 1. System Preparation
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install python3-pip python3-venv ffmpeg network-manager git nginx -y
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/yowunpansilu/Conduit.git
+    cd Conduit
+    ```
 
-### 2. Application Setup
-```bash
-# Clone the repository
-git clone https://github.com/yowunpansilu/Conduit.git
-cd Conduit
+2.  **Create Virtual Environment**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
 
-# Create environment
-python3 -m venv venv
-source venv/bin/activate
-pip install flask telethon tmdbsimple guessit gunicorn python-dotenv
-```
+3.  **Install Dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### 3. Configuration
-Create a `.env` file in the root:
-```env
-TG_API_ID=your_id
-TG_API_HASH=your_hash
-TMDB_API_KEY=your_key
-SECRET_KEY=your_secret
-DOWNLOAD_DIR=/media/storage/downloads
-LIBRARY_DIR=/media/storage/library
-```
+4.  **Configuration**
+    Create a `.env` file in the root directory:
+    ```env
+    # Required
+    SECRET_KEY=your_random_secret_string
+    TMDB_API_KEY=your_tmdb_api_key
 
----
+    # Optional (Defaults provided)
+    DOWNLOAD_DIR=downloads
+    ```
 
-## 📱 Usage Guide
-
-1. **Initial Setup**: If no Wi-Fi is available, connect to the `TMS-Setup` hotspot.
-2. **Link Telegram**: Authenticate with your phone number via the Web Dashboard.
-3. **Search & Fetch**: Search for titles; the crawler interactively negotiates with Telegram bots.
-4. **Play**: Tap "Play in VLC" on your mobile device or open the generated playlist on your PC.
+5.  **Run the Server**
+    ```bash
+    python app.py
+    ```
+    Access the dashboard at `http://localhost:5001`.
 
 ---
 
-## ⚠️ Notes on Performance
-- **Avoid Transcoding**: The Dell 3521 *cannot* transcode HEVC in real-time. Always stream to a client capable of native decoding.
-- **Security**: The session file contains your Telegram credentials. Ensure the server is only accessible via your local network.
+## 📱 Usage
+
+1.  **Add Media**: Drop video files into the `downloads/` folder, or go to **Settings > Media Folders** and add existing directories from your computer.
+2.  **Scan Library**: Click **Scan Library** on the Dashboard. Conduit will identify your files and populate the grid.
+3.  **Watch**: Click any poster to view details and start playback.
+4.  **Settings**:
+    *   **Management**: Add/Remove folders.
+    *   **Network**: Connect to Wi-Fi (macOS only).
+    *   **Theme**: Toggle Dark/Light mode.
+
+---
+
+## 🏗 System Architecture
+
+**Conduit** uses a simple monolithic architecture optimized for local usage:
+
+*   **Backend**: Flask (Python) handles routing, database interactions, and system commands.
+*   **Database**: SQLite (via SQLAlchemy) stores media metadata (`Media`) and configuration (`MediaFolder`).
+*   **Frontend**: Jinja2 Templates + Bootstrap 5 + Custom CSS/JS.
+*   **Scanning**: `librarian.py` crawls directories & fetches metadata.
+*   **Networking**: `wifi_utils.py` interfaces with macOS `airport` and `networksetup` commands.
 
 ---
 
 ## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+This project is licensed under the MIT License.

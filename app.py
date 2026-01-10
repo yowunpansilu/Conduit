@@ -13,6 +13,7 @@ db.init_app(app)
 
 # Create tables
 with app.app_context():
+    # db.drop_all() # Commented out to prevent data loss on every restart
     db.create_all()
 
 # Ensure directories exist
@@ -42,8 +43,22 @@ def index():
 @app.route('/dashboard')
 def dashboard():
     # Fetch all media ordered by ID desc (newest first)
-    library = Media.query.order_by(Media.id.desc()).all()
-    return render_template('dashboard.html', library=library)
+    all_media = Media.query.order_by(Media.id.desc()).all()
+    
+    # Deduplicate by TMDB ID or Title
+    unique_library = {}
+    for item in all_media:
+        # Key: Prefer TMDB ID, fallback to Title+Year
+        if item.tmdb_id:
+            key = f"tmdb_{item.tmdb_id}"
+        else:
+            key = f"title_{item.title}_{item.year}"
+            
+        # Only add if not exists (keeps the newest one due to order_by desc)
+        if key not in unique_library:
+            unique_library[key] = item
+            
+    return render_template('dashboard.html', library=unique_library.values())
     
 @app.route('/play/<int:media_id>')
 def play(media_id):
@@ -94,6 +109,12 @@ def settings():
 def add_folder():
     path = request.form.get('path')
     if path and os.path.exists(path):
+        # Security: Prevent adding root or system dirs
+        abs_path = os.path.abspath(path)
+        if abs_path == '/' or abs_path.startswith('/etc') or abs_path.startswith('/var'):
+             flash("Security Warning: Cannot add system directories.")
+             return redirect(url_for('settings'))
+
         if not MediaFolder.query.filter_by(path=path).first():
             folder = MediaFolder(path=path)
             db.session.add(folder)
@@ -141,14 +162,163 @@ def logout():
     # Redirect to dashboard as login is disabled
     return redirect(url_for('dashboard'))
 
+# --- File Browser API ---
+@app.route('/api/browse', methods=['POST'])
+def browse_filesystem():
+    """Lists directories for the folder picker modal."""
+    data = request.json or {}
+    current_path = data.get('path')
+
+    # Default to Home Directory if no path provided
+    if not current_path:
+        current_path = os.path.expanduser("~")
+    
+    # Security/Sanity Check
+    if not os.path.isdir(current_path):
+        current_path = os.path.expanduser("~")
+
+    folders = []
+    try:
+        # List only directories
+        with os.scandir(current_path) as it:
+            for entry in it:
+                if entry.is_dir() and not entry.name.startswith('.'):
+                    folders.append(entry.name)
+        folders.sort()
+    except PermissionError:
+        flash("Permission denied for this folder.")
+        
+    parent_path = os.path.dirname(current_path)
+    
+    return {
+        'current_path': current_path,
+        'parent_path': parent_path if parent_path != current_path else None,
+        'folders': folders
+    }
+
+# --- Security Utils ---
+def is_safe_path(path):
+    """Ensure path is within safe directories (Downloads or Watch Folders)."""
+    # 1. Resolve absolute path
+    abs_path = os.path.abspath(path)
+    
+    # 2. Collect allowed roots
+    allowed_roots = [os.path.abspath(app.config['DOWNLOAD_DIR'])]
+    with app.app_context():
+        # We need to handle context if calling outside request, but here is fine
+        try:
+            for mf in MediaFolder.query.all():
+                allowed_roots.append(os.path.abspath(mf.path))
+        except:
+            pass # DB might not be ready
+            
+    # 3. Check if path starts with any allowed root
+    for root in allowed_roots:
+        # commonpath check prevents traversal like /media/downloads/../../etc/passwd
+        # by verifying the resolved path still shares the root prefix
+        try:
+            if os.path.commonpath([abs_path, root]) == root:
+                return True
+        except ValueError:
+            continue # Paths on different drives (Windows)
+            
+    return False
+
+# --- Helper: Resolve Path ---
+def resolve_media_path(filename):
+    """
+    Attempts to resolve the filesystem path from the Flask route variable.
+    Handles absolute paths, relative paths, and Flask's slash-stripping quirks.
+    """
+    candidates = []
+    
+    # 1. As-is (Absolute or Relative to CWD)
+    candidates.append(filename)
+    
+    # 2. Relative to Download Directory
+    candidates.append(os.path.join(app.config['DOWNLOAD_DIR'], filename))
+    
+    # 3. Re-constructed Absolute Path (if leading slash was stripped)
+    # e.g. "Users/me/..." -> "/Users/me/..."
+    candidates.append(os.path.abspath(os.path.join(os.path.sep, filename)))
+
+    for path in candidates:
+        if os.path.exists(path):
+            return os.path.abspath(path)
+            
+    return None
+
 @app.route('/stream/<path:filename>')
 def stream(filename):
-    # Filename is likely absolute path now, or relative to cwd
-    # If absolute, send directly
-    if os.path.isabs(filename):
-         return send_file(filename)
-    # Fallback to downloads
-    return send_file(os.path.join(app.config['DOWNLOAD_DIR'], filename))
+    full_path = resolve_media_path(filename)
+    
+    if full_path and is_safe_path(full_path):
+         return send_file(full_path)
+    
+    print(f"Stream Error: File not found or unsafe: {filename} -> {full_path}")
+    return Response("Access Denied or File Not Found", status=403)
+
+# --- VLC Transcoding Logic ---
+@app.route('/stream/transcode/<path:filename>')
+def stream_transcode(filename):
+    """
+    Uses local VLC to transcode non-browser-friendly files (MKV, AVI) to MP4 live.
+    """
+    full_path = resolve_media_path(filename)
+        
+    if not full_path or not is_safe_path(full_path):
+        print(f"Transcode Error: File not found or unsafe: {filename} -> {full_path}")
+        return Response("Access Denied", status=403)
+
+    # 2. VLC Command
+    # cvlc -I dummy input_file --sout "#transcode{vcodec=h264,vb=800,acodec=mp3,ab=128}:std{access=file,mux=mp4,dst=-}" vlc://quit
+    # Note: 'dst=-' sends to stdout
+    vlc_path = "/Applications/VLC.app/Contents/MacOS/VLC"
+    
+    cmd = [
+        vlc_path,
+        "-I", "dummy",          # No interface
+        full_path,              # Input
+        "--sout",               # Stream Output
+        "#transcode{vcodec=h264,vb=1500,acodec=mp3,ab=128}:std{access=file,mux=mp4,dst=-}",
+        "vlc://quit"            # Quit when done
+    ]
+
+    def generate():
+        # Spawn VLC process
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        
+        try:
+            # Stream stdout in chunks
+            while True:
+                data = process.stdout.read(4096)
+                if not data:
+                    break
+                yield data
+        finally:
+            process.kill()
+
+    return Response(generate(), mimetype='video/mp4')
+
+# --- External Player Logic ---
+@app.route('/open/vlc/<int:media_id>')
+def open_in_vlc(media_id):
+    """
+    Generates an m3u playlist file to trigger external players (VLC).
+    """
+    media = Media.query.get_or_404(media_id)
+    
+    # Construct absolute URL for the stream
+    stream_url = url_for('stream', filename=media.file_path, _external=True)
+    
+    # M3U Content
+    m3u_content = f"#EXTM3U\n#EXTINF:-1,{media.title}\n{stream_url}"
+    
+    return Response(
+        m3u_content,
+        mimetype='audio/x-mpegurl',
+        headers={'Content-Disposition': f'attachment;filename="{media.title}.m3u"'}
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, threaded=True)

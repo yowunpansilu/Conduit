@@ -48,11 +48,25 @@
 
 <body>
     <a href="{{ url_for('dashboard') }}" class="back-btn"><i class="bi bi-arrow-left"></i> Back to Library</a>
-    <div class="player-container">
-        <video controls autoplay>
+    <div class="player-container flex-column">
+        <video id="videoPlayer" controls autoplay>
             <source src="{{ url_for('stream', filename=media.file_path) }}" type="video/mp4">
+            <source src="{{ url_for('stream_transcode', filename=media.file_path) }}" type="video/mp4">
             Your browser does not support the video tag.
         </video>
+        <div class="mt-3 text-center">
+            <h2 class="h4">{{ media.title }}</h2>
+            <div class="d-flex justify-content-center gap-3">
+                <a href="{{ url_for('stream_transcode', filename=media.file_path) }}" target="_blank"
+                    class="text-white-50 text-decoration-none small">
+                    <i class="bi bi-gear"></i> Force Transcode
+                </a>
+                <a href="{{ url_for('open_in_vlc', media_id=media.id) }}"
+                    class="text-warning text-decoration-none small">
+                    <i class="bi bi-cone-striped"></i> Open in VLC
+                </a>
+            </div>
+        </div>
     </div>
 </body>
 

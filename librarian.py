@@ -63,6 +63,8 @@ class Librarian:
         poster_path = None
         overview = None
         tmdb_id = None
+        rating = None
+        duration = None
         
         if Config.TMDB_API_KEY:
             try:
@@ -76,6 +78,14 @@ class Librarian:
                     top_result = search.results[0]
                     tmdb_id = top_result['id']
                     overview = top_result['overview']
+                    rating = top_result.get('vote_average')
+                    
+                    # Fetch Full Details for Runtime
+                    if media_type == 'movie':
+                        m = tmdb.Movies(tmdb_id)
+                        details = m.info()
+                        duration = details.get('runtime')
+                    
                     if top_result.get('poster_path'):
                         # Download Poster
                         poster_url = f"https://image.tmdb.org/t/p/w500{top_result['poster_path']}"
@@ -102,7 +112,9 @@ class Librarian:
                     media_type=media_type,
                     tmdb_id=tmdb_id,
                     overview=overview,
-                    poster_path=poster_path
+                    poster_path=poster_path,
+                    rating=rating,
+                    duration=duration
                 )
                 
                 # Only move if it is an import (Downloads folder)
