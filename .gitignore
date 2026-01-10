@@ -33,3 +33,4 @@ downloads/
 library/
 *.session
 *.session-journal
+release.sh
