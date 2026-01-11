@@ -8,7 +8,7 @@ It is designed to be lightweight and simple: point it at your media folders, and
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 *   **Librarian Mode**: Automatically scans your `downloads` folder and other manual watch paths to discover movies and TV shows.
 *   **Headless Network Management**: Programmatic Wi-Fi configuration with an autonomous **Hotspot Fallback** (TMS-Setup) for effortless setup.
@@ -21,7 +21,7 @@ It is designed to be lightweight and simple: point it at your media folders, and
 
 ---
 
-## 🛠 Prerequisites
+## Prerequisites
 
 *   **Python 3.9+**
 *   **TMDB API Key**: Free to get from [The Movie Database](https://www.themoviedb.org/documentation/api).
@@ -29,7 +29,7 @@ It is designed to be lightweight and simple: point it at your media folders, and
 
 ---
 
-## 🔧 Installation
+## Installation
 
 1.  **Clone the Repository**
     ```bash
@@ -79,7 +79,7 @@ It is designed to be lightweight and simple: point it at your media folders, and
 
 ---
 
-## 🏗 System Architecture
+## System Architecture
 
 **Conduit** uses a simple monolithic architecture optimized for local usage:
 
