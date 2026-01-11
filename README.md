@@ -91,6 +91,6 @@ It is designed to be lightweight and simple: point it at your media folders, and
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License.
+This project is licensed under the GPL-3.0 License.
